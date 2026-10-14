@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "fsavoia.antigravity-usage",
+  "name": "Antigravity Meter",
+  "version": "1.0.0",
+  "author": "Felipe Savoia",
+  "description": "Your live Google Antigravity quota as a native tab in the Omarchy agents panel.",
+  "homepage": "https://github.com/fsavoia/omarchy-antigravity",
+  "license": "MIT",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "ui/main.qml"
+  }
+}

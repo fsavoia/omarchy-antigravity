@@ -1,0 +1,140 @@
+#!/usr/bin/python3
+# omarchy:summary=Write the Antigravity agents-panel record
+# omarchy:args=[--write]
+"""Google Antigravity quota for the Omarchy agents panel.
+
+The Omarchy agents panel (omarchy.agents) draws whatever JSON records appear in
+~/.local/state/omarchy/agents/usage/. This runs the Antigravity CLI's own `/usage`
+command and writes a single record for it, so the subscription's rolling windows
+(5-hour and weekly, per model group) show up as a native tab.
+
+No third-party tool and no API key are involved: the quota comes from the CLI the user
+is already signed into. The CLI is only ever asked for its usage; nothing is refreshed
+or written back.
+
+`agy -p "/usage" --output-format json` returns an envelope whose `command.data.groups[]`
+each carry `buckets[]` of `{id, name, window, remaining_fraction, reset_time}`.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+AGENT_ID = "antigravity"
+AGENT_NAME = "Antigravity"
+TIMEOUT_SECONDS = 120
+
+# The CLI groups models by how they draw on the quota; shorten the group names for the
+# panel's per-limit labels.
+GROUP_LABELS = {
+    "Gemini Models": "Gemini",
+    "Claude and GPT models": "Claude/GPT",
+}
+WINDOW_LABELS = {"5h": "5h", "weekly": "Weekly"}
+
+
+def usage_dir() -> Path:
+    base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
+    return Path(base) / "omarchy" / "agents" / "usage"
+
+
+def run_usage() -> dict:
+    agy = shutil.which("agy")
+    if agy is None:
+        raise SystemExit("Antigravity CLI (agy) is not installed.")
+    try:
+        proc = subprocess.run(
+            [agy, "-p", "/usage", "--output-format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        raise SystemExit("agy /usage timed out.")
+    if proc.returncode != 0:
+        lines = (proc.stderr or proc.stdout or "").strip().splitlines()
+        raise SystemExit("agy /usage failed: %s" % (lines[-1] if lines else "unknown error"))
+    try:
+        envelope = json.loads(proc.stdout)
+    except ValueError:
+        raise SystemExit("agy /usage did not return JSON.")
+    data = (envelope.get("command") or {}).get("data")
+    if not isinstance(data, dict):
+        raise SystemExit("agy /usage returned no quota data (are you signed in?).")
+    return data
+
+
+def clamp_percent(remaining: object) -> float:
+    try:
+        return round(max(0.0, min(1.0, 1.0 - float(remaining))), 4)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def build_record(data: dict) -> dict:
+    limits = []
+    groups = data.get("groups")
+    for group in groups if isinstance(groups, list) else []:
+        if not isinstance(group, dict):
+            continue
+        label = GROUP_LABELS.get(str(group.get("name")), str(group.get("name") or AGENT_NAME))
+        buckets = group.get("buckets")
+        for bucket in buckets if isinstance(buckets, list) else []:
+            if not isinstance(bucket, dict):
+                continue
+            window = str(bucket.get("window") or bucket.get("name") or "")
+            limits.append(
+                {
+                    "label": "%s \u00b7 %s" % (label, WINDOW_LABELS.get(window, window or "Limit")),
+                    "percent": clamp_percent(bucket.get("remaining_fraction")),
+                    "resetsAt": str(bucket.get("reset_time") or ""),
+                }
+            )
+    if not limits:
+        raise SystemExit("agy /usage reported no buckets.")
+    return {
+        "schemaVersion": 1,
+        "id": AGENT_ID,
+        "name": AGENT_NAME,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "ready": True,
+        "hasLocalStats": False,
+        "hasPromptStats": False,
+        "scope": "account",
+        "tierLabel": "",
+        "usageStatusText": "",
+        "authHelpText": "",
+        "limits": limits,
+    }
+
+
+def write_records(records: list, directory: Path) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    for record in records:
+        handle, tmp = tempfile.mkstemp(dir=str(directory), prefix="." + record["id"] + ".")
+        with os.fdopen(handle, "w") as fh:
+            json.dump(record, fh, separators=(",", ":"), sort_keys=True)
+            fh.write("\n")
+        os.replace(tmp, directory / (record["id"] + ".json"))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--write", action="store_true", help="write the record into the Omarchy usage directory")
+    args = parser.parse_args()
+    record = build_record(run_usage())
+    if args.write:
+        write_records([record], usage_dir())
+    else:
+        print(json.dumps(record, separators=(",", ":"), sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
