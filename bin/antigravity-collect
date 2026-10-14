@@ -36,7 +36,7 @@ GROUP_LABELS = {
     "Gemini Models": "Gemini",
     "Claude and GPT models": "Claude/GPT",
 }
-WINDOW_LABELS = {"5h": "5h", "weekly": "Weekly"}
+WINDOW_LABELS = {"5h": "Session", "weekly": "Weekly"}
 
 
 def usage_dir() -> Path:
@@ -88,10 +88,15 @@ def build_record(data: dict) -> dict:
         for bucket in buckets if isinstance(buckets, list) else []:
             if not isinstance(bucket, dict):
                 continue
-            window = str(bucket.get("window") or bucket.get("name") or "")
+            window = str(bucket.get("window") or "")
+            row_title = "%s \u00b7 %s" % (label, WINDOW_LABELS.get(window, window or "Limit"))
             limits.append(
                 {
-                    "label": "%s \u00b7 %s" % (label, WINDOW_LABELS.get(window, window or "Limit")),
+                    # The panel derives "Session"/"Weekly" from the label and would drop the
+                    # model group, collapsing Antigravity's two groups into look-alike rows;
+                    # an explicit title keeps each group's windows apart.
+                    "label": row_title,
+                    "title": row_title,
                     "percent": clamp_percent(bucket.get("remaining_fraction")),
                     "resetsAt": str(bucket.get("reset_time") or ""),
                 }
