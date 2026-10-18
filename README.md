@@ -19,8 +19,10 @@ the panel picks up.
 ## Requirements
 
 - Omarchy, with the `omarchy.agents` bar widget in your layout.
-- The Antigravity CLI (`agy`), signed in — the same login the CLI uses. Install it with
-  `curl -fsSL https://antigravity.google/cli/install.sh | bash`.
+- The Antigravity CLI (`agy`), signed in — the same login the CLI uses. Install it
+  following Google's official instructions at
+  <https://antigravity.google/docs/cli/install>. The plugin never downloads or executes
+  an installer itself.
 - `python3` (already present on Omarchy).
 
 ## Install
